@@ -1,0 +1,67 @@
+# this is an alternative pdt for the waterfall to use opportunity history instead of opportunity field history.
+
+
+view: opportunity_history_waterfall {
+  extends: [opportunity_history_waterfall_core]
+
+  # TODO: Set which column you'd like to use for your "Amount" calculations (examples include ACV, ARV, MRR)
+  dimension: amount_config {
+    sql: acv_2_0_c;;
+  }
+
+
+  derived_table: {
+    sql:
+      WITH opportunity_history_by_day as (
+      SELECT * ,
+      TIMESTAMP_TRUNC(created_date, DAY) as window_start,
+      COALESCE(LEAD(TIMESTAMP_TRUNC(created_date, DAY),1) OVER (PARTITION BY opportunity_id ORDER BY created_date), CAST('2100-12-31' AS TIMESTAMP)) as window_end
+      FROM
+      (
+      SELECT
+      distinct id, opportunity_id, CAST(amount AS FLOAT64) as amount, CAST(close_date as TIMESTAMP) as close_date, CAST(probability AS FLOAT64) as probability, stage_name, forecast_category, created_date,
+      LAST_VALUE(id) OVER (PARTITION BY opportunity_id, TIMESTAMP_TRUNC(created_date,DAY) ORDER BY created_date, id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as last_id_on_created_date
+      FROM `looker-applications-228719.salesforce.opportunity_history`
+      )
+      WHERE id = last_id_on_created_date
+
+
+      SELECT
+              COALESCE(first.opportunity_id, last.opportunity_id)                       AS opportunity_id
+            , first.opportunity_id                                                      AS opp_id_first
+            , last.opportunity_id                                                       AS opp_id_last
+            , COALESCE(first.opportunity_created_date , last.opportunity_created_date)  AS opportunity_created_date
+            , first.id                                                                  AS history_id_first
+            , first.window_start                                                        AS window_start_first
+            , first.window_end                                                          AS window_end_first
+            , 1.0*first.amount                                                          AS amount_first
+            , first.close_date                                                          AS close_date_first
+            , 1.0*first.probability                                                     AS probability_first
+            , first.stage_name                                                          AS stage_name_first
+            , first.forecast_category                                                   AS forecast_category_first
+            , last.id                                                                   AS history_id_last
+            , last.window_start                                                         AS window_start_last
+            , last.window_end                                                           AS window_end_last
+            , 1.0*last.amount                                                           AS amount_last
+            , last.close_date                                                           AS close_date_last
+            , 1.0*last.probability                                                      AS probability_last
+            , last.stage_name                                                           AS stage_name_last
+            , last.forecast_category                                                    AS forecast_category_last
+
+          FROM (
+                  SELECT
+                    *
+                  FROM opportunity_history_by_day
+                  WHERE {% date_start pipeline_dates %} >= window_start AND {% date_start pipeline_dates %} < window_end
+                ) AS first
+
+          FULL OUTER JOIN (
+                  SELECT
+                    *
+                  FROM opportunity_history_by_day
+                  WHERE {% date_end pipeline_dates %} >= window_start AND {% date_end pipeline_dates %} < window_end
+                ) AS last
+        ON first.opportunity_id = last.opportunity_id
+;;
+  }
+}
