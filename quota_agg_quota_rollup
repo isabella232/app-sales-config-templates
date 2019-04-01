@@ -1,0 +1,46 @@
+include: "//app-sales/quota_core.view.lkml"
+
+view: quota_map {
+  derived_table: {
+    sql:
+      SELECT 'Zacherie Clausen' as name, 'Inside Sales 1' as ae_segment
+      UNION ALL
+      SELECT 'Tiffani Helstrom' as name, 'Inside Sales 2' as ae_segment
+      UNION ALL
+      SELECT 'Gwendolyn Maris' as name, 'Outside Sales 1' as ae_segment
+      UNION ALL
+      SELECT 'Reine Duckerin' as name, 'Outside Sales 2' as ae_segment
+    ;;
+  }
+}
+
+view: quota_numbers {
+  derived_table: {
+    sql:
+      SELECT 'Inside Sales' as ae_seg, 200000 as quota_amount
+      UNION ALL
+      SELECT 'Outside Sales' as ae_seg, 500000 as quota_amount
+    ;;
+  }
+}
+
+
+view: quota {
+  extends: [quota_core]
+  derived_table: {
+    sql:
+      SELECT *, sum(quota_amount) as aggregate_quota
+      FROM ${quota_map.SQL_TABLE_NAME}
+      LEFT JOIN ${quota_numbers.SQL_TABLE_NAME} ON quota_map.ae_segment = quota_numbers.ae_seg
+    ;;
+  }
+
+
+  # TODO: The aggregate quota for the entire org should be defined here. This should be a yearly number.
+  dimension: aggregate_quota {
+    type: number
+    sql: ${TABLE}.aggregate_quota ;;
+    hidden: yes
+    value_format_name: custom_amount_value_format
+  }
+}
