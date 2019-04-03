@@ -1,0 +1,93 @@
+connection: "app-salesforce"
+
+include: "*.view"
+include: "//app-sales-adapter/*.view"
+include: "//app-sales/*.view"
+include: "//app-sales/*.explore"
+include: "//app-sales/*.dashboard"
+
+
+# TODO: Update schemas and add each module for cross channel reporting
+datagroup: sales_analytics_etl {
+  # datagroup for caching policy and persistent derived tables (PDTs) #
+  # check if any of the Salesforce tables surfaced in Looker have been updated and synced recently
+  sql_trigger:
+    SELECT MAX(done) FROM `salesforce.fivetran_audit`
+    WHERE schema = 'salesforce' AND table in ('account', 'campaign', 'contact', 'lead', 'opportunity', 'user') ;;
+  max_cache_age: "1 hour"
+}
+
+##########################################################################################################
+## TODO: Set fiscal month offset to how many months after January to start the fiscal year.             ##
+##########################################################################################################
+# fiscal_month_offset: 0
+
+named_value_format: custom_amount_value_format {
+  value_format: "[>=1000000]$0.0,,\"M\";[>=1000]$0,\"K\";$0.00"
+}
+### For table calculations, use value format: [>=1000000]$0.0,,"M";[>=1000]$0,"K";$0.00
+
+
+#########################
+#### Explore Extends ####
+#########################
+explore: opportunity {
+  extends: [opportunity_core]
+  fields: [EXTENDED*]
+
+  join: validated_opportunities {
+    sql_on: ${validated_opportunities.opportunity_id} = ${opportunity.id} ;;
+    relationship: one_to_one
+  }
+  join: opportunity_line_item_grouped {
+    sql_on: ${opportunity_line_item_grouped.opportunity_id} = ${opportunity.id} ;;
+    relationship: one_to_one
+  }
+}
+
+##########################################################################################################
+## (Looker Specific)                                                                                    ##
+## These extensions are removing fields that use custom fields from other views                         ##
+##########################################################################################################
+explore: account {
+  extends: [account_core]
+  fields: [EXTENDED*, -opportunity.is_validated, -opportunity.count_new_business_lost_excluding_unvalidated_opportunities, -opportunity.count_new_business_closed_excluding_unvalidated_opportunities, -opportunity.win_percentage]
+}
+
+explore: contact {
+  extends: [contact_core]
+  fields: [EXTENDED*, -opportunity.is_validated, -opportunity.count_new_business_lost_excluding_unvalidated_opportunities, -opportunity.count_new_business_closed_excluding_unvalidated_opportunities, -opportunity.win_percentage]
+}
+
+explore: historical_snapshot {
+  extends: [historical_snapshot_core]
+  fields: [EXTENDED*, -opportunity.is_validated, -opportunity.count_new_business_lost_excluding_unvalidated_opportunities, -opportunity.count_new_business_closed_excluding_unvalidated_opportunities, -opportunity.win_percentage, -account_owner.ae_segment]
+}
+
+explore: opportunity_history_waterfall {
+  extends: [opportunity_history_waterfall_core]
+  fields: [EXTENDED*, -opportunity.is_validated, -opportunity.count_new_business_lost_excluding_unvalidated_opportunities, -opportunity.count_new_business_closed_excluding_unvalidated_opportunities, -opportunity.win_percentage]
+
+  join: opportunity_line_item_grouped {
+    sql_on: ${opportunity_line_item_grouped.opportunity_id} = ${opportunity.id} ;;
+    relationship: one_to_one
+  }
+
+}
+
+##########################################################################################################
+## (Looker Specific)                                                                                    ##
+## This extension is adding a join that will filter out unvalidated opps                                ##
+## https://app.dev.looker.com/projects/app-sales-config/files/validated_opportunities.view.lkml         ##
+##########################################################################################################
+
+
+explore: lead {
+  extends: [lead_core]
+  fields: [EXTENDED*]
+
+  join: validated_opportunities {
+    sql_on: ${validated_opportunities.opportunity_id} = ${opportunity.id} ;;
+    relationship: one_to_one
+  }
+}
